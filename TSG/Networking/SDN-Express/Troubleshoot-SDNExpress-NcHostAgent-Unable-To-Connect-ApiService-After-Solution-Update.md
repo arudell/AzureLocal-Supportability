@@ -130,7 +130,7 @@ Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
 
 > **Important:** Repeat this for each Hyper-V host against every NC VM.
 
-### Install AzureStackCertificationAuthortity certificate to NC manually
+### Install AzureStackCertificationAuthority certificate to NC manually
 This is a short term mitigation that you should perform as part of your post solution update steps until a code fix is released. This only needs to be executed from one of the Hyper-V hosts. This requires [SdnDiagnostics](https://learn.microsoft.com/en-us/azure/azure-local/manage/sdn-log-collection?view=azloc-2603#install-the-sdn-diagnostics-powershell-module-on-the-client-computer) to be installed on the Network Controller VMs as well as the Hyper-V hosts. By default for Azure Local, SdnDiagnostics is included for the Hyper-V hosts.
 
 Connect to a Hyper-V host and copy the .cer file to each NC node.
