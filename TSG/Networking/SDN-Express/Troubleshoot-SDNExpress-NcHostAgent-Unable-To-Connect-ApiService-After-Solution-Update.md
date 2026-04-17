@@ -15,7 +15,7 @@
   </tr>
   <tr>
     <th style="text-align:left;">Affected Versions</th>
-    <td><strong>All versions</strong></td>
+    <td><strong>2506,2507,2508,2509,2510,2511,2512,2601,2602,2603,2604</strong></td>
   </tr>
 </table>
 
@@ -60,131 +60,98 @@ The certificate rotation process depends on the following registry key being pre
 HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters\NetworkControllerNodeNames
 ```
 
-This registry key is created by Windows Admin Center (WAC) during SDN deployment. In environments where WAC was not used (e.g., SdnExpress-based deployments or brownfield configurations), this registry key does not exist. When the key is missing, the secret rotation process silently skips the NC and SLB certificate injection and incorrectly reports success.
+This registry key is created by Windows Admin Center (WAC) and is created when you use WAC to manage Network Controller. In environments where WAC is not used this registry key does not exist. If this key is not present for SdnExpress deployments, we will not rotate the AzureStackCertificationAuthority.
 
 ### 2. HCI Admin User Not Added to Local Administrators on NC VMs
 
-The certificate rotation process uses PowerShell remoting (`Invoke-Command`) from the Hyper-V hosts to the Network Controller VMs to install the updated certificates. If the cluster node machine accounts or the HCI admin user are not members of the Local Administrators group on the NC VMs, the remote commands fail and certificate propagation does not complete.
+The certificate rotation process uses PowerShell remoting (`Invoke-Command`) from the Hyper-V hosts to the Network Controller VMs to install the updated certificates. If the HCI admin is not a member of the Local Administrators group on the NC VMs, the remote commands fail and certificate propagation does not complete.
 
 ### 3. Code Defect in Certificate Rotation Logic
 
-There is a known defect in the certificate rotation logic where:
-
-- The `Get-VM` lookup assumes VM names match the FQDN or NetBIOS name, which is not always true
-- An `Invoke-Command` argument handling issue (extra comma) results in a null argument being passed, causing the rotation to be silently skipped
+There is a known defect in the certificate rotation logic where incorrect name validation is performed, resulting in us skipping the rotate and marking the step as Success.
 
 > **Note:** A fix for these code defects is currently in development and will be addressed in a future update.
 
 ## Resolution
 
-### Prerequisites
+### Missing NetworkControllerNodeNames Registry Key
 
-- Administrative access to the Hyper-V host nodes
-- Administrative access to the Network Controller VMs
-- [SdnDiagnostics](https://github.com/microsoft/SdnDiagnostics/wiki) PowerShell module installed
+On each Hyper-V host, verify that the `NetworkControllerNodeNames` registry key exists and contains the Network Controller VM names.
 
-### Steps
+```powershell
+# Check if the registry key exists and has a value
+$regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters"
+$regValue = Get-ItemProperty -Path $regPath -Name "NetworkControllerNodeNames" -ErrorAction SilentlyContinue
 
-1. **Validate the registry key exists and is populated**
+if ($null -eq $regValue) {
+    Write-Host "NetworkControllerNodeNames registry key is MISSING." -ForegroundColor Red
+}
+elseif ([string]::IsNullOrWhiteSpace($regValue.NetworkControllerNodeNames)) {
+    Write-Host "NetworkControllerNodeNames registry key EXISTS but is EMPTY." -ForegroundColor Yellow
+}
+else {
+    Write-Host "NetworkControllerNodeNames: $($regValue.NetworkControllerNodeNames)" -ForegroundColor Green
+}
+```
 
-   On each Hyper-V host, verify that the `NetworkControllerNodeNames` registry key exists and contains the Network Controller VM names.
+If the key is missing or empty, populate it with the Network Controller VM names (comma-separated):
 
-   ```powershell
-   # Check if the registry key exists and has a value
-   $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters"
-   $regValue = Get-ItemProperty -Path $regPath -Name "NetworkControllerNodeNames" -ErrorAction SilentlyContinue
+```powershell
+# Replace <NC-VM1>,<NC-VM2>,<NC-VM3> with your actual NC VM names
+$ncNodeNames = "<NC-VM1>,<NC-VM2>,<NC-VM3>"
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters" -Name "NetworkControllerNodeNames" -Value $ncNodeNames
+```
 
-   if ($null -eq $regValue) {
-       Write-Host "NetworkControllerNodeNames registry key is MISSING." -ForegroundColor Red
-   }
-   elseif ([string]::IsNullOrWhiteSpace($regValue.NetworkControllerNodeNames)) {
-       Write-Host "NetworkControllerNodeNames registry key EXISTS but is EMPTY." -ForegroundColor Yellow
-   }
-   else {
-       Write-Host "NetworkControllerNodeNames: $($regValue.NetworkControllerNodeNames)" -ForegroundColor Green
-   }
-   ```
+> **Important:** Repeat this step on every Hyper-V host in the cluster.
 
-   If the key is missing or empty, populate it with the Network Controller VM names (comma-separated):
+### HCI Admin User Not Added to Local Administrators on NC VMs
 
-   ```powershell
-   # Replace <NC-VM1>,<NC-VM2>,<NC-VM3> with your actual NC VM names
-   $ncNodeNames = "<NC-VM1>,<NC-VM2>,<NC-VM3>"
-   Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters" -Name "NetworkControllerNodeNames" -Value $ncNodeNames
-   ```
+The certificate rotation process requires that the Hyper-V hosts can remotely manage the Network Controller VMs. Verify that the cluster nodes have local administrator permissions on each NC VM.
 
-   > **Important:** Repeat this step on every Hyper-V host in the cluster.
+```powershell
+# Run from a Hyper-V host against each NC VM
+# Replace <NC-VM> with your NC VM name
+Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
+    $adminGroup = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
+    $adminGroup | Format-Table Name, ObjectClass, PrincipalSource
+}
+```
 
-2. **Validate local administrator permissions on Network Controller VMs**
+If the cluster nodes are not listed as local administrators, add them:
 
-   The certificate rotation process requires that the Hyper-V hosts can remotely manage the Network Controller VMs. Verify that the cluster nodes have local administrator permissions on each NC VM.
+```powershell
+# Run on each NC VM
+# Replace <DOMAIN\ClusterNode$> with your cluster node machine account
+Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
+    Add-LocalGroupMember -Group "Administrators" -Member "<DOMAIN\ClusterNode$>"
+}
+```
 
-   ```powershell
-   # Run from a Hyper-V host against each NC VM
-   # Replace <NC-VM> with your NC VM name
-   Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
-       $adminGroup = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
-       $adminGroup | Format-Table Name, ObjectClass, PrincipalSource
-   }
-   ```
+> **Important:** Repeat this for each Hyper-V host against every NC VM.
 
-   If the cluster nodes are not listed as local administrators, add them:
+### Install AzureStackCertificationAuthortity certificate to NC manually
+This is a short term mitigation that you should perform as part of your post solution update steps until a code fix is released. This only needs to be executed from one of the Hyper-V hosts.
 
-   ```powershell
-   # Run on each NC VM
-   # Replace <DOMAIN\ClusterNode$> with your cluster node machine account
-   Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
-       Add-LocalGroupMember -Group "Administrators" -Member "<DOMAIN\ClusterNode$>"
-   }
-   ```
+This requires [SdnDiagnostics](https://learn.microsoft.com/en-us/azure/azure-local/manage/sdn-log-collection?view=azloc-2603#install-the-sdn-diagnostics-powershell-module-on-the-client-computer) to be installed on the Network Controller VMs as well as the Hyper-V hosts. By default for Azure Local, SdnDiagnostics is included for the Hyper-V hosts.
 
-   > **Important:** Repeat this for each Hyper-V host against every NC VM.
+1. Connect to a Hyper-V host and copy the .cer file to each NC node.
+    ```powershell
+    $currentVersion = (Get-SolutionUpdateEnvironment -ErrorAction Stop).CurrentVersion
+    if ($($currentVersion.Minor) -ge 2604) {
+      $rootDir = 'C:\ProgramData\AzureEdge\CertificateStore\LocalMachine\Root'
+    }
+    else {
+      $rootDir = 'C:\ClusterStorage\Infrastructure_1\Shares\SU1_Infrastructure_1\AzureStackCertificateAuthority'
+    }
+    Copy-SdnFileToComputer -Path (Join-Path -Path $rootDir -ChildPath "AzureStackCertificationAuthority.cer" -Destination (Get-SdnWorkingDirectory) -ComputerName 'NC1','NC2','NC3'
+    ```
 
-3. **Run certificate rotation to restore connectivity (short-term mitigation)**
+1. Install the certificate into trusted root store.
+    ```powershell
+    Invoke-SdnCommand -ComputerName 'NC1','NC2','NC3' -ScriptBlock {
+      $cert = Get-ChildItem -Path "$(Get-SdnWorkingDirectory)\AzureStackCertificationAuthority.cer"
+      Import-SdnCertificate -FilePath $cert.FullName -CertStore 'Cert:\LocalMachine\Root'
+    }
+    ```
 
-   Use `Start-SdnServerCertificateRotation` from the SdnDiagnostics module to manually trigger certificate rotation and restore the NcHostAgent-to-ApiService connection.
-
-   ```powershell
-   # Import the SdnDiagnostics module if not already loaded
-   Import-Module SdnDiagnostics
-
-   # Generate the SdnDiagnostics credential (NC admin credentials)
-   $credential = Get-Credential
-
-   # Start the certificate rotation
-   Start-SdnServerCertificateRotation -Credential $credential
-   ```
-
-   > **Note:** This is a short-term mitigation. The issue will recur on the next solution update unless the registry key (Step 1) is properly configured on all hosts before the update.
-
-4. **Verify resolution**
-
-   Confirm that the NcHostAgent service on each host can now communicate with the Network Controller.
-
-   ```powershell
-   # Check NcHostAgent service status on each host
-   Get-Service -Name NcHostAgent | Select-Object Name, Status
-
-   # Verify Network Controller connectivity by querying server resources
-   $nchaParams = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters"
-   $ncUri = "https://$($nchaParams.PeerCertificateCName)"
-   Get-NetworkControllerServer -ConnectionUri $ncUri
-   ```
-
-   A successful response listing server resources confirms that connectivity has been restored.
-
-## Prevention
-
-To prevent this issue from recurring on future solution updates:
-
-- Ensure the `NetworkControllerNodeNames` registry key is populated on **all** Hyper-V hosts before performing a solution update
-- Verify local administrator permissions on NC VMs are correctly configured before updates
-- After any solution update, validate NcHostAgent connectivity to the Network Controller as part of post-update verification
-
-## Related Issues
-
-- [Troubleshoot: Host Not Connected to Controller](Troubleshoot-SDNExpress-HealthAlert-HostNotConnectedToController.md)
-- [Troubleshoot: Host Unreachable](Troubleshoot-SDNExpress-HealthAlert-HostUnreachable.md)
-- [SdnDiagnostics Wiki](https://github.com/microsoft/SdnDiagnostics/wiki)
-
----
+Alternatively, if you have SdnDiagnostics with version 4.2604 or later, you can leverage [Start-SdnServerCertificateRotation](https://learn.microsoft.com/en-us/azure/azure-local/manage/update-sdn-infrastructure-certificates) from the Hyper-V host which will automatically detect the AzureStackCertificationAuthority certificate and copy to Network Controller VMs.
