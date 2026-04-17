@@ -51,7 +51,7 @@ Impact = "Policy configuration may not be pushed to the Hyper-V host(s) if no so
 
 ## Root Cause
 
-During a solution update, the host certificates are rotated by ECE (Environment Configuration Engine). For the certificate rotation to also propagate the AzureStackCertificationAuthority certificate to the Network Controller VMs, several conditions must be met. A failure in any of the following causes the NcHostAgent-to-ApiService connection to break after the update.
+During a solution update, the host certificates are rotated automatically. For the certificate rotation to also propagate the AzureStackCertificationAuthority certificate to the Network Controller VMs, several conditions must be met. A failure in any of the following causes the NcHostAgent-to-ApiService connection to break after the update.
 
 ### 1. Missing NetworkControllerNodeNames Registry Key
 
