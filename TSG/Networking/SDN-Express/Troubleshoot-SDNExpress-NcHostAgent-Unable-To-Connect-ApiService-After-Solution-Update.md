@@ -62,9 +62,9 @@ HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters\NetworkController
 
 This registry key is created by Windows Admin Center (WAC) and is created when you use WAC to manage Network Controller. In environments where WAC is not used this registry key does not exist. If this key is not present for SdnExpress deployments, we will not rotate the AzureStackCertificationAuthority.
 
-### 2. HCI Admin User Not Added to Local Administrators on NC VMs
+### 2. HCI Deployment User Not Added to Local Administrators on NC VMs
 
-The certificate rotation process uses PowerShell remoting (`Invoke-Command`) from the Hyper-V hosts to the Network Controller VMs to install the updated certificates. If the HCI admin is not a member of the Local Administrators group on the NC VMs, the remote commands fail and certificate propagation does not complete.
+The certificate rotation process uses PowerShell remoting (`Invoke-Command`) from the Hyper-V hosts to the Network Controller VMs to install the updated certificates. If the HCI deployment user is not a member of the Local Administrators group on the NC VMs, the remote commands fail and certificate propagation does not complete.
 
 ### 3. Code Defect in Certificate Rotation Logic
 
@@ -104,9 +104,9 @@ Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Para
 
 > **Important:** Repeat this step on every Hyper-V host in the cluster.
 
-### HCI Admin User Not Added to Local Administrators on NC VMs
+### HCI Deployment User Not Added to Local Administrators on NC VMs
 
-The certificate rotation process requires that the Hyper-V hosts can remotely manage the Network Controller VMs. Verify that the cluster nodes have local administrator permissions on each NC VM.
+The certificate rotation process requires that the Hyper-V hosts can remotely manage the Network Controller VMs. Verify that the cluster nodes have local administrator permissions on each NC VM. To determine your deployment user, leverage `Get-AzsSupportLcmDeploymentUserName` included with the [Support Diagnostics Tool](https://learn.microsoft.com/en-us/azure/azure-local/manage/support-tools).
 
 ```powershell
 # Run from a Hyper-V host against each NC VM
@@ -123,7 +123,7 @@ If the cluster nodes are not listed as local administrators, add them:
 # Run on each NC VM
 # Replace <DOMAIN\ClusterNode$> with your cluster node machine account
 Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
-    Add-LocalGroupMember -Group "Administrators" -Member "<DOMAIN\ClusterNode$>"
+    Add-LocalGroupMember -Group "Administrators" -Member "<DOMAIN\HCI_DEPLOY_USER>"
 }
 ```
 
