@@ -29,23 +29,32 @@ This issue recurs after every subsequent solution update until the underlying ro
 
 **Common error messages:**
 
-The NcHostAgent service on the Hyper-V hosts reports connectivity failures to the Network Controller ApiService.
+ConfigurationState reported for /servers/{resourceId} may show failure indicating:
 
 ```
-NcHostAgent unable to connect to ApiService
+PolicyConfigurationFailure
+```
+
+If you run `Debug-SdnFabricInfrastructure`, you may see the following test reporting failure:
+
+```
+Test-SdnHostAgentConnectionStateToApiService
+Description = "Network Controller Host Agent is not connected to the Network Controller API Service."
+Impact = "Policy configuration may not be pushed to the Hyper-V host(s) if no southbound connectivity is available."
 ```
 
 **Observable behaviors:**
 
-- Network Controller cannot manage Hyper-V hosts after a solution update
-- SDN policies are no longer applied to tenant VMs
-- Virtual network connectivity may be disrupted
-- NcHostAgent service on the hosts fails to authenticate with Network Controller
-- The issue reoccurs after each subsequent solution update
+- Network Controller is unable to program VFP policies to VMs, resulting.
+- VM traffic for VMs, especially after live-migration may break.
 
 ## Root Cause
 
-During a solution update, the host certificates are rotated by ECE (Environment Configuration Engine). For the certificate rotation to also propagate the AzureStackCertificationAuthority certificate to the Network Controller VMs, the following registry key must exist and be populated on each Hyper-V host:
+During a solution update, the host certificates are rotated by ECE (Environment Configuration Engine). For the certificate rotation to also propagate the AzureStackCertificationAuthority certificate to the Network Controller VMs, several conditions must be met. A failure in any of the following causes the NcHostAgent-to-ApiService connection to break after the update.
+
+### 1. Missing NetworkControllerNodeNames Registry Key
+
+The certificate rotation process depends on the following registry key being present and populated on each Hyper-V host:
 
 ```
 HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters\NetworkControllerNodeNames
@@ -53,7 +62,18 @@ HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Parameters\NetworkController
 
 This registry key is created by Windows Admin Center (WAC) during SDN deployment. In environments where WAC was not used (e.g., SdnExpress-based deployments or brownfield configurations), this registry key does not exist. When the key is missing, the secret rotation process silently skips the NC and SLB certificate injection and incorrectly reports success.
 
-As a result, after the update the hosts present new certificates that the Network Controller does not trust, breaking the NcHostAgent-to-ApiService connection.
+### 2. HCI Admin User Not Added to Local Administrators on NC VMs
+
+The certificate rotation process uses PowerShell remoting (`Invoke-Command`) from the Hyper-V hosts to the Network Controller VMs to install the updated certificates. If the cluster node machine accounts or the HCI admin user are not members of the Local Administrators group on the NC VMs, the remote commands fail and certificate propagation does not complete.
+
+### 3. Code Defect in Certificate Rotation Logic
+
+There is a known defect in the certificate rotation logic where:
+
+- The `Get-VM` lookup assumes VM names match the FQDN or NetBIOS name, which is not always true
+- An `Invoke-Command` argument handling issue (extra comma) results in a null argument being passed, causing the rotation to be silently skipped
+
+> **Note:** A fix for these code defects is currently in development and will be addressed in a future update.
 
 ## Resolution
 
