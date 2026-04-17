@@ -107,31 +107,27 @@ Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NcHostAgent\Para
 
 ### HCI Deployment User Not Added to Local Administrators on NC VMs
 
-The certificate rotation process requires that the Hyper-V hosts can remotely manage the Network Controller VMs. Verify that the cluster nodes have local administrator permissions on each NC VM. To determine your deployment user, leverage `Get-AzsSupportLcmDeploymentUserName` included with the [Support Diagnostics Tool](https://learn.microsoft.com/en-us/azure/azure-local/manage/support-tools).
+The certificate rotation process requires that the Hyper-V hosts can remotely manage the Network Controller VMs. Verify that the Azure Local Deployment User has local administrator permissions on each NC VM. To determine your deployment user, leverage `Get-AzsSupportLcmDeploymentUserName` included with the [Support Diagnostics Tool](https://learn.microsoft.com/en-us/azure/azure-local/manage/support-tools).
 
 ```powershell
-# Run from a Hyper-V host against each NC VM
-# Replace <NC-VM> with your NC VM name
-Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
+# run this against all the NC VMs
+Invoke-Command -ComputerName 'NC1','NC2','NC3' -ScriptBlock {
     $adminGroup = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
     $adminGroup | Format-Table Name, ObjectClass, PrincipalSource
 }
 ```
 
-If the cluster nodes are not listed as local administrators, add them:
+If the deployment user is not listed as local administrators, add them:
 
 ```powershell
-# Run on each NC VM
-# Replace <DOMAIN\ClusterNode$> with your cluster node machine account
-Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
-    Add-LocalGroupMember -Group "Administrators" -Member "<DOMAIN\HCI_DEPLOY_USER>"
+# Replace <DOMAIN\DEPLOY_USER> with your deployment user account identified
+Invoke-Command -ComputerName 'NC1','NC2','NC3' -ScriptBlock {
+    Add-LocalGroupMember -Group "Administrators" -Member "<DOMAIN\DEPLOY_USER>"
 }
 ```
 
-> **Important:** Repeat this for each Hyper-V host against every NC VM.
-
 ### Install AzureStackCertificationAuthortity certificate to NC manually
-This is a short term mitigation that you should perform as part of your post solution update steps until a code fix is released. This only needs to be executed from one of the Hyper-V hosts. This requires [SdnDiagnostics](https://learn.microsoft.com/en-us/azure/azure-local/manage/sdn-log-collection?view=azloc-2603#install-the-sdn-diagnostics-powershell-module-on-the-client-computer) to be installed on the Network Controller VMs as well as the Hyper-V hosts. By default for Azure Local, SdnDiagnostics is included for the Hyper-V hosts.
+This is a short term mitigation that you should perform as part of your post solution update steps until a code fix is released. This only needs to be executed from one of the Hyper-V hosts.This requires [SdnDiagnostics](https://learn.microsoft.com/en-us/azure/azure-local/manage/sdn-log-collection?view=azloc-2603#install-the-sdn-diagnostics-powershell-module-on-the-client-computer) to be installed on the Network Controller VMs as well as the Hyper-V hosts. By default for Azure Local, SdnDiagnostics is included for the Hyper-V hosts.
 
 Connect to a Hyper-V host and copy the .cer file to each NC node.
   ```powershell
@@ -142,7 +138,7 @@ Connect to a Hyper-V host and copy the .cer file to each NC node.
   else {
     $rootDir = 'C:\ClusterStorage\Infrastructure_1\Shares\SU1_Infrastructure_1\AzureStackCertificateAuthority'
   }
-  Copy-SdnFileToComputer -Path (Join-Path -Path $rootDir -ChildPath "AzureStackCertificationAuthority.cer" -Destination (Get-SdnWorkingDirectory) -ComputerName 'NC1','NC2','NC3'
+  Copy-SdnFileToComputer -Path (Join-Path -Path $rootDir -ChildPath "AzureStackCertificationAuthority.cer") -Destination (Get-SdnWorkingDirectory) -ComputerName 'NC1','NC2','NC3'
   ```
 
 Install the certificate into trusted root store.
