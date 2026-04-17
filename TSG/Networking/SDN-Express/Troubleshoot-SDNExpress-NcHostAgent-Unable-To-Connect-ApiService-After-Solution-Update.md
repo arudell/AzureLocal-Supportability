@@ -46,8 +46,8 @@ Impact = "Policy configuration may not be pushed to the Hyper-V host(s) if no so
 **Observable behaviors:**
 
 - Network Controller is unable to program VFP policies to VMs.
-- Network connecitvity issues for workloads.
-- Network connectivity issues, after performing live-migration.
+- Network connectivity issues for workloads.
+- Network connectivity issues after performing live migration.
 
 ## Root Cause
 
