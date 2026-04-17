@@ -131,28 +131,26 @@ Invoke-Command -ComputerName <NC-VM> -ScriptBlock {
 > **Important:** Repeat this for each Hyper-V host against every NC VM.
 
 ### Install AzureStackCertificationAuthortity certificate to NC manually
-This is a short term mitigation that you should perform as part of your post solution update steps until a code fix is released. This only needs to be executed from one of the Hyper-V hosts.
+This is a short term mitigation that you should perform as part of your post solution update steps until a code fix is released. This only needs to be executed from one of the Hyper-V hosts. This requires [SdnDiagnostics](https://learn.microsoft.com/en-us/azure/azure-local/manage/sdn-log-collection?view=azloc-2603#install-the-sdn-diagnostics-powershell-module-on-the-client-computer) to be installed on the Network Controller VMs as well as the Hyper-V hosts. By default for Azure Local, SdnDiagnostics is included for the Hyper-V hosts.
 
-This requires [SdnDiagnostics](https://learn.microsoft.com/en-us/azure/azure-local/manage/sdn-log-collection?view=azloc-2603#install-the-sdn-diagnostics-powershell-module-on-the-client-computer) to be installed on the Network Controller VMs as well as the Hyper-V hosts. By default for Azure Local, SdnDiagnostics is included for the Hyper-V hosts.
+Connect to a Hyper-V host and copy the .cer file to each NC node.
+  ```powershell
+  $currentVersion = (Get-SolutionUpdateEnvironment -ErrorAction Stop).CurrentVersion
+  if ($($currentVersion.Minor) -ge 2604) {
+    $rootDir = 'C:\ProgramData\AzureEdge\CertificateStore\LocalMachine\Root'
+  }
+  else {
+    $rootDir = 'C:\ClusterStorage\Infrastructure_1\Shares\SU1_Infrastructure_1\AzureStackCertificateAuthority'
+  }
+  Copy-SdnFileToComputer -Path (Join-Path -Path $rootDir -ChildPath "AzureStackCertificationAuthority.cer" -Destination (Get-SdnWorkingDirectory) -ComputerName 'NC1','NC2','NC3'
+  ```
 
-1. Connect to a Hyper-V host and copy the .cer file to each NC node.
-    ```powershell
-    $currentVersion = (Get-SolutionUpdateEnvironment -ErrorAction Stop).CurrentVersion
-    if ($($currentVersion.Minor) -ge 2604) {
-      $rootDir = 'C:\ProgramData\AzureEdge\CertificateStore\LocalMachine\Root'
-    }
-    else {
-      $rootDir = 'C:\ClusterStorage\Infrastructure_1\Shares\SU1_Infrastructure_1\AzureStackCertificateAuthority'
-    }
-    Copy-SdnFileToComputer -Path (Join-Path -Path $rootDir -ChildPath "AzureStackCertificationAuthority.cer" -Destination (Get-SdnWorkingDirectory) -ComputerName 'NC1','NC2','NC3'
-    ```
-
-1. Install the certificate into trusted root store.
-    ```powershell
-    Invoke-SdnCommand -ComputerName 'NC1','NC2','NC3' -ScriptBlock {
-      $cert = Get-ChildItem -Path "$(Get-SdnWorkingDirectory)\AzureStackCertificationAuthority.cer"
-      Import-SdnCertificate -FilePath $cert.FullName -CertStore 'Cert:\LocalMachine\Root'
-    }
-    ```
+Install the certificate into trusted root store.
+  ```powershell
+  Invoke-SdnCommand -ComputerName 'NC1','NC2','NC3' -ScriptBlock {
+    $cert = Get-ChildItem -Path "$(Get-SdnWorkingDirectory)\AzureStackCertificationAuthority.cer"
+    Import-SdnCertificate -FilePath $cert.FullName -CertStore 'Cert:\LocalMachine\Root'
+  }
+  ```
 
 Alternatively, if you have SdnDiagnostics with version 4.2604 or later, you can leverage [Start-SdnServerCertificateRotation](https://learn.microsoft.com/en-us/azure/azure-local/manage/update-sdn-infrastructure-certificates) from the Hyper-V host which will automatically detect the AzureStackCertificationAuthority certificate and copy to Network Controller VMs.
